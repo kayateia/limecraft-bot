@@ -55,8 +55,8 @@ function startBridge(bot) {
   function state() {
     const entities = Object.values(bot.entities)
       .filter((e) => e.entityType && e.position &&
-        e.entity.position.distanceTo(bot.entity.position) < 32 &&
-        e.entity.uuid !== bot.entity.uuid)
+        e.position.distanceTo(bot.entity.position) < 32 &&
+        e.uuid !== bot.entity.uuid)
       .slice(0, 50)
       .map((e) => ({
         id: e.id,
