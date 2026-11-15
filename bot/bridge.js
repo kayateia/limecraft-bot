@@ -16,8 +16,18 @@
 
 const http = require("http");
 
+// Ring buffer of inbound world events (chat, etc.) for polling agents.
+const eventLog = [];
+let eventSeq = 0;
+function recordEvent(text) {
+  eventLog.push({ seq: ++eventSeq, time: Date.now(), text });
+  if (eventLog.length > 200) eventLog.shift();
+}
+
 function startBridge(bot) {
   const PORT = parseInt(process.env.BRIDGE_PORT || "3000", 10);
+  // Capture all inbound messages (chat, system, joins) as events.
+  bot.on("messagestr", (text) => recordEvent(String(text)));
   const TOKEN = process.env.BRIDGE_TOKEN || "";
 
   function ok(res, body) { json(res, 200, body ?? { ok: true }); }
@@ -107,6 +117,15 @@ function startBridge(bot) {
 
       if (req.method === "GET" && url.pathname === "/state") {
         return ok(res, state());
+      }
+
+      if (req.method === "GET" && url.pathname === "/events") {
+        // GET /events?after=N -> events newer than seq N, plus current head.
+        const after = parseInt(url.searchParams.get("after") || "0", 10);
+        return ok(res, {
+          events: eventLog.filter((e) => e.seq > after),
+          head: eventSeq,
+        });
       }
 
       if (req.method === "GET" && url.pathname === "/blocks") {
