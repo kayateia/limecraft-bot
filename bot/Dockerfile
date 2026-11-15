@@ -6,6 +6,6 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 
-COPY bot.js ./
+COPY bot.js bridge.js ./
 
 CMD ["node", "bot.js"]
