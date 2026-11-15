@@ -154,7 +154,8 @@ function startBridge(bot) {
           case "/goto": {
             const { x, y, z } = body;
             if ([x, y, z].some((v) => typeof v !== "number")) return fail(res, 400, "x,y,z required");
-            const { goals, Movements } = require("mineflayer-pathfinder");
+            const { goals, Movements, pathfinder } = require("mineflayer-pathfinder");
+            if (!bot.pathfinder) bot.loadPlugin(pathfinder);
             const movements = new Movements(bot);
             bot.pathfinder.setMovements(movements);
             bot.pathfinder.setGoal(new goals.GoalNear(x, y, z, body.range ?? 1));

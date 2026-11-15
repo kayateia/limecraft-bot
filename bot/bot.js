@@ -12,7 +12,8 @@ const bot = mineflayer.createBot({
   // auth: "microsoft", // enable + MC_PASSWORD for online-mode later
 });
 
-bot.loadPlugin(require("mineflayer-pathfinder"));
+const { pathfinder } = require("mineflayer-pathfinder");
+bot.loadPlugin(pathfinder);
 
 bot.once("login", () => {
   console.log(`[bot] logged in as ${bot.username}`);
