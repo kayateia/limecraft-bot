@@ -1,7 +1,8 @@
-// Skeleton Mineflayer bot. Connects as a player, logs world state,
-// and echoes chat. Strategy/reflex layers and the pi bridge come later.
+// Mineflayer bot + HTTP bridge. Connects as a player, logs world state,
+// echoes chat, and exposes a small JSON API so an external agent can drive it.
 
 const mineflayer = require("mineflayer");
+const { startBridge } = require("./bridge");
 
 const bot = mineflayer.createBot({
   host: process.env.MC_HOST || "minecraft-offline",
@@ -11,6 +12,8 @@ const bot = mineflayer.createBot({
   // auth: "microsoft", // enable + MC_PASSWORD for online-mode later
 });
 
+bot.loadPlugin(require("mineflayer-pathfinder"));
+
 bot.once("login", () => {
   console.log(`[bot] logged in as ${bot.username}`);
 });
@@ -19,6 +22,7 @@ bot.once("spawn", () => {
   const p = bot.entity.position;
   console.log(`[bot] spawned at ${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}`);
   console.log(`[bot] world: ${bot.game?.dimension ?? "unknown"}`);
+  startBridge(bot);
 });
 
 // Chat log + simple echo guard (so it can't get stuck echoing itself)
@@ -27,7 +31,7 @@ bot.on("chat", (username, message) => {
   console.log(`[chat] <${username}> ${message}`);
   // TODO: route to pi bridge; for now a canned hello
   if (message.toLowerCase().includes("hello lime")) {
-    bot.chat("hello! 🍋‍🟩 (well, some text approximation of it)");
+    bot.chat("hello! (Minecraft chat has no lemon glyph, I checked)");
   }
 });
 
