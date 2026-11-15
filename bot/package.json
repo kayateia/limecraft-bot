@@ -1,0 +1,11 @@
+{
+  "name": "lime-mc-bot",
+  "version": "0.1.0",
+  "description": "Mineflayer bot skeleton for the Featherhold offline test server",
+  "type": "commonjs",
+  "main": "bot.js",
+  "dependencies": {
+    "mineflayer": "^4.28.0",
+    "prismarine-viewer": "^1.30.0"
+  }
+}
