@@ -6,6 +6,5 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 
-COPY bot.js bridge.js ./
-
+# Bot code comes from a bind mount in docker-compose (live-edit friendly)
 CMD ["node", "bot.js"]
