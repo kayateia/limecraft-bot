@@ -1,0 +1,13 @@
+{
+  "name": "lime-cam",
+  "version": "0.1.0",
+  "description": "Spectator cam bot: prismarine-viewer web view + headless-chromium snapshots",
+  "type": "commonjs",
+  "main": "cam.js",
+  "dependencies": {
+    "mineflayer": "^4.35.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "prismarine-viewer": "^1.30.0",
+    "puppeteer-core": "^23.0.0"
+  }
+}
