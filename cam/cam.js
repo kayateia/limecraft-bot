@@ -23,9 +23,19 @@ const bot = mineflayer.createBot({ host: HOST, port: PORT, username: USERNAME, v
 bot.loadPlugin(require("mineflayer-pathfinder").pathfinder);
 
 let browser = null, page = null, pageReady = false;
+let lastPagePos = null; // where the bot was when the viewer page last loaded
 
+// The viewer web client's camera does not reliably follow the bot across
+// long moves, so we reload the page when the bot has drifted from where
+// the page was last initialized. A fresh load always centers the camera.
 async function ensurePage() {
+  const p = bot.entity ? bot.entity.position : null;
+  if (p && lastPagePos && p.distanceTo(lastPagePos) > 2) {
+    console.log("[cam] bot moved; reloading viewer page");
+    pageReady = false;
+  }
   if (pageReady && page) return page;
+  lastPagePos = p ? p.clone() : null;
   browser = await puppeteer.launch({
     executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
     args: [
