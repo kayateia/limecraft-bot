@@ -19,6 +19,26 @@ const VERSION = process.env.MC_VERSION || "1.21.4";
 const VIEW_PORT = parseInt(process.env.VIEW_PORT || "3007", 10);
 const SNAP_PORT = parseInt(process.env.SNAP_PORT || "3008", 10);
 
+// Patch the prismarine-viewer web client: its position handler only aims the
+// camera at the bot ONCE (a "first shot" flag, s=!1), leaving the camera frozen
+// at (bot + 20,20,20) forever. We remove the flag and make the offset
+// configurable via CAM_OFF_X/Y/Z so we get a live drone camera.
+const fs = require("fs");
+function patchViewerClient() {
+  const p = require.resolve("prismarine-viewer/public/index.js");
+  let s = fs.readFileSync(p, "utf8");
+  const target = "t.y>0&&s&&(h.target.set(t.x,t.y,t.z),u.camera.position.set(t.x,t.y+20,t.z+20),h.update(),s=!1)";
+  const replacement = "t.y>0&&(h.target.set(t.x,t.y,t.z),u.camera.position.set(t.x+(window.__COX??20),t.y+(window.__COY??20),t.z+(window.__COZ??20)),h.update())";
+  if (!s.includes(target)) {
+    if (s.includes(replacement)) { console.log("[cam] viewer client already patched"); return; }
+    console.log("[cam] WARNING: viewer patch target not found; camera may stay static. Bundle may have changed upstream.");
+    return;
+  }
+  fs.writeFileSync(p, s.replace(target, replacement));
+  console.log("[cam] viewer client patched: camera follows bot with configurable offset");
+}
+patchViewerClient();
+
 const bot = mineflayer.createBot({ host: HOST, port: PORT, username: USERNAME, version: VERSION });
 bot.loadPlugin(require("mineflayer-pathfinder").pathfinder);
 
@@ -49,6 +69,10 @@ async function ensurePage(force) {
     defaultViewport: { width: 1024, height: 768 },
   });
   page = await browser.newPage();
+  const cox = parseFloat(process.env.CAM_OFF_X ?? "20");
+  const coy = parseFloat(process.env.CAM_OFF_Y ?? "20");
+  const coz = parseFloat(process.env.CAM_OFF_Z ?? "20");
+  await page.evaluateOnNewDocument(`window.__COX=${cox};window.__COY=${coy};window.__COZ=${coz};`);
   await page.goto(`http://localhost:${VIEW_PORT}/`, { waitUntil: "networkidle2", timeout: 60000 });
   await new Promise((r) => setTimeout(r, 5000)); // let chunks stream in
   pageReady = true;
