@@ -28,11 +28,15 @@ let lastPagePos = null; // where the bot was when the viewer page last loaded
 // The viewer web client's camera does not reliably follow the bot across
 // long moves, so we reload the page when the bot has drifted from where
 // the page was last initialized. A fresh load always centers the camera.
-async function ensurePage() {
+async function ensurePage(force) {
   const p = bot.entity ? bot.entity.position : null;
-  if (p && lastPagePos && p.distanceTo(lastPagePos) > 2) {
-    console.log("[cam] bot moved; reloading viewer page");
-    pageReady = false;
+  if (p && lastPagePos) {
+    const d = p.distanceTo(lastPagePos);
+    console.log(`[cam] ensurePage: dist=${d.toFixed(1)} force=${!!force}`);
+    if (d > 2 || force) {
+      console.log("[cam] bot moved; reloading viewer page");
+      pageReady = false;
+    }
   }
   if (pageReady && page) return page;
   lastPagePos = p ? p.clone() : null;
@@ -84,7 +88,7 @@ const server = http.createServer(async (req, res) => {
         if ([dx, dy, dz].some((v) => typeof v !== "number" || Number.isNaN(v))) { res.writeHead(400); return res.end("bad coords"); }
         await gotoNear(dx, dy, dz);
       }
-      const pg = await ensurePage();
+      const pg = await ensurePage(url.searchParams.has("refresh"));
       // small delay so the camera settles after any move
       await new Promise((r) => setTimeout(r, 1500));
       const shot = await pg.screenshot({ type: "png" });
