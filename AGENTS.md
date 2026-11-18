@@ -40,6 +40,14 @@ affected PR, and make a GitHub stack.
 
 `npm run build` is the primary build process.
 
+`packages/bot` runs TypeScript directly on Node's native type stripping (`node src/index.ts`);
+`tsc --noEmit` is the type gate. Avoid syntax the stripper rejects: no `enum`, no `namespace`,
+and no constructor parameter properties.
+
+zod must stay at v4+ in `packages/bot`. With zod 3.25, `McpServer.registerTool` type inference
+explodes (`TS2589: Type instantiation is excessively deep and possibly infinite`), and the
+compiler takes minutes before reporting it.
+
 ## Testing
 
 Use jest for unit tests.

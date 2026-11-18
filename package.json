@@ -7,13 +7,13 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc .",
+    "build": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present"
   },
   "engines": {
     "node": ">=22.19.0"
   },
   "devDependencies": {
-    "typescript": "^7.0.2"
+    "typescript": "^5.9.3"
   }
 }

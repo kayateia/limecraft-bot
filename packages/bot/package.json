@@ -1,13 +1,26 @@
 {
-  "name": "lime-mc-bot",
-  "version": "0.2.0",
-  "description": "Mineflayer bot + HTTP bridge for the Featherhold offline test server",
-  "type": "commonjs",
-  "main": "bot.js",
+  "name": "@limecraft/bot",
+  "version": "0.3.0",
+  "description": "Lime's Minecraft bot: Mineflayer + REST + MCP over HTTP, with embedded prismarine-viewer snapshots",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "node src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
   "dependencies": {
-    "mineflayer": "^4.28.0",
-    "mineflayer-pathfinder": "^2.0.3",
-    "prismarine-viewer": "^1.30.0",
-    "vec3": "^0.1.10"
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "canvas": "^3.2.3",
+    "mineflayer": "^4.39.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "prismarine-viewer": "^1.33.0",
+    "puppeteer-core": "^23.11.1",
+    "vec3": "^0.1.10",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^5.9.3"
   }
 }
