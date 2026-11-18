@@ -21,6 +21,11 @@ const viewerFactory = require("prismarine-viewer") as {
 };
 const puppeteer = require("puppeteer-core") as typeof import("puppeteer-core");
 
+/** Idle time after which the whole browser is torn down (frees its RAM). */
+const BROWSER_IDLE_MS = 5 * 60 * 1000;
+/** Time between idle-watchdog checks. */
+const IDLE_CHECK_MS = 60 * 1000;
+
 /**
  * Patch the prismarine-viewer web client bundle so the camera *follows* the bot.
  *
@@ -52,14 +57,24 @@ function patchViewerClient(): void {
   console.log("[vision] viewer client patched: camera follows bot with configurable offset");
 }
 
-/** Headless-Chromium screenshot pipeline over the prismarine-viewer web UI. */
+/**
+ * Headless-Chromium screenshot pipeline over the prismarine-viewer web UI.
+ *
+ * CPU discipline matters here: the viewer page runs a requestAnimationFrame
+ * WebGL loop, and WebGL under swiftshader is *software* rendering on the CPU.
+ * A page left open would peg cores forever even when nothing changes (this
+ * actually happened: an overnight 100% CPU burn). So the viewer page lives
+ * only for the duration of one snapshot and is destroyed the moment the PNG
+ * is captured. Between snapshots there are zero open tabs; the bare browser
+ * is torn down by an idle watchdog a few minutes after its last use.
+ */
 export class Vision {
+  private bot: Bot;
   private browser: Browser | null = null;
-  private page: Page | null = null;
-  private pageReady = false;
-  private lastPagePosition: { x: number; y: number; z: number } | null = null;
-
-  private readonly bot: Bot;
+  private lastBrowserUse = 0;
+  private idleTimer: NodeJS.Timeout | null = null;
+  /** Serializes snapshots; concurrent requests share one capture. */
+  private inFlight: Promise<Buffer> | null = null;
 
   constructor(bot: Bot) {
     this.bot = bot;
@@ -73,75 +88,121 @@ export class Vision {
       viewDistance: config.viewDistance,
       firstPerson: false,
     });
-    console.log(`[vision] viewer web server on :${config.viewPort}`);
+    console.log(`[vision] viewer web server on :${config.viewPort} (pages load per-snapshot only)`);
+  }
+
+  /** Launch the browser if needed and arm the idle watchdog. */
+  private async ensureBrowser(): Promise<Browser> {
+    if (!this.browser) {
+      this.browser = await puppeteer.launch({
+        executablePath: config.chromiumPath,
+        args: [
+          "--no-sandbox",
+          "--disable-gpu-sandbox",
+          "--use-gl=angle",
+          "--use-angle=swiftshader",
+          "--enable-unsafe-swiftshader",
+          "--disable-dev-shm-usage",
+        ],
+        defaultViewport: { width: config.snapshotWidth, height: config.snapshotHeight },
+      });
+      console.log("[vision] chromium launched");
+    }
+    this.lastBrowserUse = Date.now();
+    if (!this.idleTimer) {
+      this.idleTimer = setInterval(() => void this.reapIdleBrowser(), IDLE_CHECK_MS);
+      this.idleTimer.unref();
+    }
+    return this.browser;
+  }
+
+  /** Close the browser when it has been unused for BROWSER_IDLE_MS. */
+  private async reapIdleBrowser(): Promise<void> {
+    if (!this.browser || this.inFlight) return;
+    if (Date.now() - this.lastBrowserUse < BROWSER_IDLE_MS) return;
+    console.log("[vision] chromium idle, closing");
+    await this.close();
   }
 
   /**
-   * Ensure a loaded screenshot page whose camera sits at the bot's current
-   * position. The page is reloaded when the bot has moved more than two blocks
-   * (or when `force` is set), because camera tracking on reload is what makes
-   * `?dx/dy/dz` snapshots meaningful.
+   * Load a fresh viewer page. The page is created per snapshot and closed in
+   * the caller's `finally`, so the WebGL render loop never outlives a capture.
    */
-  private async ensurePage(force = false): Promise<Page> {
-    const position = this.bot.entity?.position ?? null;
-    if (position && this.lastPagePosition) {
-      const dx = position.x - this.lastPagePosition.x;
-      const dy = position.y - this.lastPagePosition.y;
-      const dz = position.z - this.lastPagePosition.z;
-      const distance = Math.hypot(dx, dy, dz);
-      console.log(`[vision] ensurePage: dist=${distance.toFixed(1)} force=${force}`);
-      if (distance > 2 || force) this.pageReady = false;
+  private async loadViewerPage(browser: Browser): Promise<Page> {
+    const page = await browser.newPage();
+    try {
+      const { x, y, z } = config.cameraOffset;
+      await page.evaluateOnNewDocument(`window.__COX=${x};window.__COY=${y};window.__COZ=${z};`);
+      await page.goto(`http://localhost:${config.viewPort}/`, { waitUntil: "networkidle2", timeout: 60_000 });
+      // Allow chunks to stream in and meshes to build before the first frame.
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      return page;
+    } catch (error) {
+      // Never leak a half-loaded viewer page: it would keep rendering.
+      await page.close().catch(() => {});
+      throw error;
     }
-    if (this.pageReady && this.page) return this.page;
-
-    this.lastPagePosition = position ? { x: position.x, y: position.y, z: position.z } : null;
-
-    this.browser = await puppeteer.launch({
-      executablePath: config.chromiumPath,
-      args: [
-        "--no-sandbox",
-        "--disable-gpu-sandbox",
-        "--use-gl=angle",
-        "--use-angle=swiftshader",
-        "--enable-unsafe-swiftshader",
-        "--disable-dev-shm-usage",
-      ],
-      defaultViewport: { width: config.snapshotWidth, height: config.snapshotHeight },
-    });
-
-    this.page = await this.browser.newPage();
-    const { x, y, z } = config.cameraOffset;
-    await this.page.evaluateOnNewDocument(`window.__COX=${x};window.__COY=${y};window.__COZ=${z};`);
-    await this.page.goto(`http://localhost:${config.viewPort}/`, { waitUntil: "networkidle2", timeout: 60_000 });
-    // Allow chunks to stream in and meshes to build before the first frame.
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
-    this.pageReady = true;
-    console.log("[vision] viewer page ready");
-    return this.page;
   }
 
   /**
    * Capture a PNG of the world. When `moveTo` is given the bot walks there
-   * first (so the camera ends up framing that area).
+   * first (so the camera ends up framing that area). Overlapping calls wait
+   * for and reuse the running capture.
    */
   async snapshot(options: { moveTo?: { x: number; y: number; z: number }; refresh?: boolean } = {}): Promise<Buffer> {
     if (!this.bot.entity) throw new Error("bot has not spawned yet");
+    if (this.inFlight) return this.inFlight;
+
+    this.inFlight = this.capture(options);
+    try {
+      return await this.inFlight;
+    } finally {
+      this.inFlight = null;
+    }
+  }
+
+  /** One full capture cycle: move, render, shoot, tear the page down. */
+  private async capture(options: { moveTo?: { x: number; y: number; z: number }; refresh?: boolean }): Promise<Buffer> {
     if (options.moveTo) {
       const { x, y, z } = options.moveTo;
       await gotoNear(this.bot, x, y, z, 3);
     }
-    const page = await this.ensurePage(options.refresh ?? false);
-    // Let the camera settle after any movement before capturing.
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
-    const shot = await page.screenshot({ type: "png" });
-    return Buffer.isBuffer(shot) ? shot : Buffer.from(shot);
+
+    const browser = await this.ensureBrowser();
+    const page = await this.loadViewerPage(browser);
+    try {
+      // Let the camera settle after any movement before capturing.
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      const shot = await withTimeout(page.screenshot({ type: "png" }), 30_000, "screenshot");
+      this.lastBrowserUse = Date.now();
+      return Buffer.isBuffer(shot) ? shot : Buffer.from(shot);
+    } finally {
+      // Destroy the render loop immediately; never wait on this failing.
+      await page.close().catch(() => {});
+      console.log("[vision] viewer page closed (render loop stopped)");
+    }
   }
 
-  /** Close the browser (used on shutdown). */
+  /** Close the browser and stop the watchdog (used on shutdown and reaping). */
   async close(): Promise<void> {
-    await this.browser?.close();
+    if (this.idleTimer) {
+      clearInterval(this.idleTimer);
+      this.idleTimer = null;
+    }
+    await this.browser?.close().catch(() => {});
     this.browser = null;
-    this.page = null;
-    this.pageReady = false;
+  }
+}
+
+/** Reject if a promise takes longer than `ms`, so a hung page can't wedge the bot. */
+async function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
   }
 }
