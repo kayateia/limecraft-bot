@@ -1,7 +1,8 @@
 # limecraft-bot
 
-Mineflayer bot code for the Limecraft lab server. The sibling repo
-`limecraft-infra` holds the docker-compose and other deployment files.
+Mineflayer bot code for the Limecraft lab server, as an npm-workspaces monorepo.
+The sibling repo `limecraft-infra` holds the docker-compose and other deployment
+files.
 
 ## Layout
 
@@ -18,11 +19,30 @@ Mineflayer bot code for the Limecraft lab server. The sibling repo
 - `packages/cam/`: LimeCam spectator camera (earlier design). Serves the
   prismarine-viewer web view and `GET /snapshot`. Superseded by `packages/bot`;
   kept until the merged harness reaches parity in the lab.
+- `Dockerfile`: shared runtime image (Node 26 + Chromium + canvas libs). It
+  contains no repo code.
+
+## How it runs
+
+This is a plain monorepo: dependencies are installed once, on the host, at the
+repo root (`npm install`), and each package uses them through normal Node
+resolution.
+
+Containers do not bake in the code and do not mount `node_modules` separately.
+`docker-compose` mounts the whole checkout at `/repo` and each service runs its
+entry point from there, e.g. `node packages/bot/src/index.ts`. Module resolution
+inside the container is therefore identical to the host, including nested
+workspace dependencies.
+
+```sh
+npm install                # once, at the repo root
+npm run build              # tsc --noEmit across workspaces
+npm run start:bot          # run the bot straight from the checkout
+```
 
 ## Notes
 
 - Lab server runs 1.21.4 (prismarine-viewer's best-supported version).
 - Bot logins are offline-mode accounts; offline UUID = md5("OfflinePlayer:<name>").
-- Type gate: `npm run build` (runs `tsc --noEmit` in each workspace).
 - zod must stay v4+ in `packages/bot`, see AGENTS.md.
 - Field manual / operational lessons: Eyrie `processes/minecraft-bot-lessons.md`.

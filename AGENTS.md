@@ -38,7 +38,11 @@ affected PR, and make a GitHub stack.
 
 ## Building
 
-`npm run build` is the primary build process.
+`npm run build` is the primary build process (it runs `npm run typecheck` in each workspace).
+
+Dependencies live at the repo root (`npm install`, npm workspaces). Containers map the whole
+checkout at `/repo` and use those host-installed dependencies; do not add per-package
+`node_modules` mounts or bake code into images.
 
 `packages/bot` runs TypeScript directly on Node's native type stripping (`node src/index.ts`);
 `tsc --noEmit` is the type gate. Avoid syntax the stripper rejects: no `enum`, no `namespace`,
